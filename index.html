@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- 検索エンジンにインデックスさせない（必須要件） -->
+    <meta name="robots" content="noindex, nofollow">
+    <title>工数メモ</title>
+    <!-- Tailwind CSS (レスポンシブ・スタイリング用) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #f3f4f6; font-family: sans-serif; }
+        summary { cursor: pointer; }
+        summary::-webkit-details-marker { display: none; }
+        summary::marker { content: ""; }
+    </style>
+</head>
+<body class="p-4 md:p-8">
+
+    <div class="max-w-3xl mx-auto bg-white rounded-xl shadow-md overflow-hidden">
+        <div class="p-6 bg-indigo-600 text-white">
+            <h1 class="text-2xl font-bold">⏱ 工数メモ</h1>
+            <p class="text-sm opacity-80 mt-1">顧客・案件・作業項目ごとの見積もりと実績を記録する個人用メモ</p>
+        </div>
+
+        <div class="p-6">
+            <!-- 入力フォーム (Create / Update) -->
+            <form id="recordForm" class="space-y-4 mb-8 bg-gray-50 p-4 rounded-lg border">
+                <input type="hidden" id="recordId" value="">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">顧客名</label>
+                        <input type="text" id="customerName" required placeholder="例: ダミー商事株式会社" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">案件名</label>
+                        <input type="text" id="projectName" required placeholder="例: 基幹システム再構築" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">作業項目名（タスク）</label>
+                    <input type="text" id="taskName" required placeholder="例: 画面Aのレイアウト修正" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">作業日</label>
+                        <input type="date" id="workDate" required class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">見積工数（時間）</label>
+                        <input type="number" id="estimatedHours" required min="0" step="0.5" placeholder="例: 5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">実績工数（時間）</label>
+                        <input type="number" id="actualHours" required min="0" step="0.5" placeholder="例: 2.5" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">メモ</label>
+                    <input type="text" id="memo" placeholder="任意" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm p-2 border focus:border-indigo-500 focus:ring focus:ring-indigo-200">
+                </div>
+
+                <div class="pt-2 flex gap-2">
+                    <button type="submit" id="submitBtn" class="flex-1 bg-indigo-600 text-white py-2 px-4 rounded hover:bg-indigo-700 transition">
+                        記録する
+                    </button>
+                    <button type="button" id="cancelBtn" class="hidden bg-gray-400 text-white py-2 px-4 rounded hover:bg-gray-500 transition" onclick="resetForm()">
+                        キャンセル
+                    </button>
+                </div>
+            </form>
+
+            <!-- 顧客 > 案件 > タスク の階層一覧・集計表示エリア (Read) -->
+            <h2 class="text-xl font-bold mb-4 text-gray-800 border-b pb-2">顧客ごとの記録</h2>
+            <div id="listContainer" class="space-y-3">
+                <p class="text-gray-500 text-sm">まだ記録がありません。</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const STORAGE_KEY = 'kosu_memo_data_v2'; // v1はprojectName単体のスキーマだったため、顧客/案件/タスクの3階層化で別キーに分離
+        let records = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
+
+        renderList();
+
+        // フォーム送信時 (Create / Update)
+        document.getElementById('recordForm').addEventListener('submit', function (e) {
+            e.preventDefault();
+
+            const id = document.getElementById('recordId').value;
+            const customerName = document.getElementById('customerName').value;
+            const projectName = document.getElementById('projectName').value;
+            const taskName = document.getElementById('taskName').value;
+            const workDate = document.getElementById('workDate').value;
+            const estimatedHours = parseFloat(document.getElementById('estimatedHours').value);
+            const actualHours = parseFloat(document.getElementById('actualHours').value);
+            const memo = document.getElementById('memo').value;
+
+            if (id) {
+                // 更新処理 (Update)
+                const index = records.findIndex(r => r.id === id);
+                if (index !== -1) {
+                    records[index] = { ...records[index], customerName, projectName, taskName, workDate, estimatedHours, actualHours, memo };
+                }
+            } else {
+                // 新規登録処理 (Create)
+                records.push({
+                    id: 'rec_' + Date.now(), // 簡易的な一意のID
+                    customerName,
+                    projectName,
+                    taskName,
+                    workDate,
+                    estimatedHours,
+                    actualHours,
+                    memo
+                });
+            }
+
+            saveData();
+            resetForm();
+            renderList();
+        });
+
+        // データ保存
+        function saveData() {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(records));
+        }
+
+        // フォームリセット
+        function resetForm() {
+            document.getElementById('recordForm').reset();
+            document.getElementById('recordId').value = '';
+            document.getElementById('submitBtn').innerText = '記録する';
+            document.getElementById('cancelBtn').classList.add('hidden');
+        }
+
+        // 編集モードへの切り替え (Update準備)
+        function editRecord(id) {
+            const record = records.find(r => r.id === id);
+            if (!record) return;
+
+            document.getElementById('recordId').value = record.id;
+            document.getElementById('customerName').value = record.customerName;
+            document.getElementById('projectName').value = record.projectName;
+            document.getElementById('taskName').value = record.taskName;
+            document.getElementById('workDate').value = record.workDate;
+            document.getElementById('estimatedHours').value = record.estimatedHours;
+            document.getElementById('actualHours').value = record.actualHours;
+            document.getElementById('memo').value = record.memo;
+
+            document.getElementById('submitBtn').innerText = '記録を更新する';
+            document.getElementById('cancelBtn').classList.remove('hidden');
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+        }
+
+        // 削除処理 (Delete)
+        function deleteRecord(id) {
+            if (confirm('この記録を削除しますか？')) {
+                records = records.filter(r => r.id !== id);
+                saveData();
+                renderList();
+            }
+        }
+
+        // 指定したキーでグルーピングする
+        function groupBy(list, keyFn) {
+            const groups = new Map();
+            list.forEach(item => {
+                const key = keyFn(item);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(item);
+            });
+            return groups;
+        }
+
+        // タスク単位の集計（見積は最新レコードを代表値として採用）
+        function summarizeTask(taskRecords) {
+            const items = taskRecords.slice().sort((a, b) => b.workDate.localeCompare(a.workDate));
+            const estimatedHours = items[0].estimatedHours;
+            const actualTotal = items.reduce((sum, r) => sum + r.actualHours, 0);
+            return { items, estimatedHours, actualTotal, diff: estimatedHours - actualTotal };
+        }
+
+        // 集計バッジ（見積 / 実績計 / 差分）のHTMLを作る
+        function summaryBadgeHtml(estimatedHours, actualTotal) {
+            const diff = estimatedHours - actualTotal;
+            const isOver = diff < 0;
+            const diffClass = isOver ? 'text-red-700 font-bold' : 'text-gray-600';
+            const diffLabel = isOver
+                ? `⚠️ ${Math.abs(diff).toFixed(1)}時間 超過`
+                : `残り ${diff.toFixed(1)}時間`;
+            return `<span class="text-gray-500">見積 ${estimatedHours.toFixed(1)} / 実績 ${actualTotal.toFixed(1)}</span> <span class="${diffClass}">${diffLabel}</span>`;
+        }
+
+        // 一覧・集計の描画 (Read + Summary)：顧客 > 案件 > タスク の3階層
+        function renderList() {
+            const container = document.getElementById('listContainer');
+            container.innerHTML = '';
+
+            if (records.length === 0) {
+                container.innerHTML = '<p class="text-gray-500 text-sm">まだ記録がありません。</p>';
+                return;
+            }
+
+            const customerGroups = groupBy(records, r => r.customerName);
+
+            customerGroups.forEach((customerRecords, customerName) => {
+                const projectGroups = groupBy(customerRecords, r => r.projectName);
+
+                // 顧客単位の集計（配下タスクの見積・実績を合算）
+                let customerEstimated = 0, customerActual = 0;
+                const projectHtmlParts = [];
+
+                projectGroups.forEach((projectRecords, projectName) => {
+                    const taskGroups = groupBy(projectRecords, r => r.taskName);
+
+                    let projectEstimated = 0, projectActual = 0;
+                    const taskHtmlParts = [];
+
+                    taskGroups.forEach((taskRecords, taskName) => {
+                        const { items, estimatedHours, actualTotal, diff } = summarizeTask(taskRecords);
+                        projectEstimated += estimatedHours;
+                        projectActual += actualTotal;
+
+                        const rowsHtml = items.map(r => `
+                            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-2 py-1.5 border-b last:border-b-0">
+                                <div class="flex-1">
+                                    <span class="text-xs text-gray-500">${escapeHtml(r.workDate)}</span>
+                                    <span class="text-sm ml-2">実績 ${r.actualHours}時間</span>
+                                    ${r.memo ? `<p class="text-xs text-gray-500">${escapeHtml(r.memo)}</p>` : ''}
+                                </div>
+                                <div class="flex gap-2 w-full md:w-auto">
+                                    <button onclick="editRecord('${r.id}')" class="flex-1 md:flex-none px-2 py-0.5 text-xs border border-gray-300 text-gray-600 rounded hover:bg-gray-100">編集</button>
+                                    <button onclick="deleteRecord('${r.id}')" class="flex-1 md:flex-none px-2 py-0.5 text-xs bg-red-500 text-white rounded hover:bg-red-600">削除</button>
+                                </div>
+                            </div>
+                        `).join('');
+
+                        taskHtmlParts.push(`
+                            <div class="border rounded p-3 mb-2 ${diff < 0 ? 'bg-red-50 border-red-300' : 'bg-white border-gray-200'}">
+                                <div class="flex flex-col md:flex-row justify-between md:items-center gap-1 mb-1">
+                                    <span class="font-semibold text-sm text-gray-800">${escapeHtml(taskName)}</span>
+                                    <span class="text-xs">${summaryBadgeHtml(estimatedHours, actualTotal)}</span>
+                                </div>
+                                ${rowsHtml}
+                            </div>
+                        `);
+                    });
+
+                    customerEstimated += projectEstimated;
+                    customerActual += projectActual;
+
+                    projectHtmlParts.push(`
+                        <details class="border rounded-lg mb-2 bg-gray-50">
+                            <summary class="p-3 flex flex-col md:flex-row justify-between md:items-center gap-1">
+                                <span class="font-semibold text-gray-800">📁 ${escapeHtml(projectName)}</span>
+                                <span class="text-xs">${summaryBadgeHtml(projectEstimated, projectActual)}</span>
+                            </summary>
+                            <div class="p-3 pt-0">${taskHtmlParts.join('')}</div>
+                        </details>
+                    `);
+                });
+
+                const customerHtml = `
+                    <details class="border rounded-lg bg-white shadow-sm" open>
+                        <summary class="p-4 flex flex-col md:flex-row justify-between md:items-center gap-1">
+                            <span class="font-bold text-lg text-gray-800">🏢 ${escapeHtml(customerName)}</span>
+                            <span class="text-sm">${summaryBadgeHtml(customerEstimated, customerActual)}</span>
+                        </summary>
+                        <div class="p-4 pt-0">${projectHtmlParts.join('')}</div>
+                    </details>
+                `;
+                container.insertAdjacentHTML('beforeend', customerHtml);
+            });
+        }
+
+        // XSS対策（簡易サニタイズ）
+        function escapeHtml(str) {
+            return String(str).replace(/[&<>'"]/g,
+                tag => ({
+                    '&': '&amp;',
+                    '<': '&lt;',
+                    '>': '&gt;',
+                    "'": '&#39;',
+                    '"': '&quot;'
+                }[tag] || tag)
+            );
+        }
+    </script>
+</body>
+</html>
